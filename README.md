@@ -10,9 +10,9 @@ You should see package.json file in the folder
 ## Running the app
 
 ```bash
-npm install
-npm run dev
+Run: serve dist
 ```
+Open Chrome and type in the URL: http://localhost:3000
 
 ## Building the app
 
