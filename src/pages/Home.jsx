@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { Satellite, Info, Pause, Play, RotateCcw, Zap } from 'lucide-react';
+import { Satellite, Info, Pause, Play, RotateCcw, Zap, ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function Home() {
   const containerRef = useRef(null);
@@ -24,6 +24,9 @@ export default function Home() {
   const [speed, setSpeed] = useState([0.1]);
   const speedRef = useRef(0.1);
   const [satelliteCount, setSatelliteCount] = useState(12);
+  const [orbitAltitude, setOrbitAltitude] = useState('LEO');
+  const [baseAltitude, setBaseAltitude] = useState(600);
+  const baseAltitudeRef = useRef(600);
   const [hoveredSatellite, setHoveredSatellite] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   const [currentThroughput, setCurrentThroughput] = useState('10Mbps');
@@ -33,6 +36,7 @@ export default function Home() {
   const [measuredDoppler, setMeasuredDoppler] = useState(0);
   const dopplerHistoryRef = useRef([]);
   const lastDopplerUpdateRef = useRef(0);
+  const [isControlsOpen, setIsControlsOpen] = useState(true);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -203,6 +207,9 @@ export default function Home() {
     losPoint.position.set(0, 0, 0);
     anchor.add(losPoint);
     const losPointRef = { current: losPoint };
+    
+    // Store anchor reference for repositioning
+    const anchorRef = { current: anchor };
 
     // Debug: Check alignment
     const vPhone = new THREE.Vector3();
@@ -214,7 +221,7 @@ export default function Home() {
     console.log("distance:", vPhone.distanceTo(vLos));
 
     // Create satellites
-    const createSatellites = (count) => {
+    const createSatellites = (count, altitude = 'LEO', customBase = null) => {
       // Remove existing satellites
       satellitesRef.current.forEach(sat => {
         scene.remove(sat.mesh);
@@ -224,6 +231,14 @@ export default function Home() {
       satellitesRef.current = [];
 
       const colors = [0x00ff88, 0xff6b6b, 0x4169e1, 0xffd700, 0xff69b4, 0x00ffff];
+
+      // Define orbit radius based on altitude type
+      const altitudeConfig = {
+        'VLEO': { base: customBase || 350, variance: 50 },
+        'LEO': { base: customBase || 600, variance: 100 },
+        'MEO': { base: customBase || 8000, variance: 500 }
+      };
+      const config = altitudeConfig[altitude];
       
       for (let i = 0; i < count; i++) {
         // Satellite mesh
@@ -243,8 +258,9 @@ export default function Home() {
         const glow = new THREE.Mesh(glowGeometry, glowMaterial);
         satellite.add(glow);
         
-        // Orbital parameters (LEO: 160-2000 km, scaled)
-        const orbitRadius = 1.3 + Math.random() * 0.4;
+        // Orbital parameters - calculate radius based on altitude
+        const altitudeKm = config.base + (Math.random() - 0.5) * config.variance;
+        const orbitRadius = 1 + (altitudeKm / 6371); // Earth radius = 6371 km
         const inclination = (Math.random() - 0.5) * Math.PI * 0.8;
         const startAngle = Math.random() * Math.PI * 2;
         const orbitSpeed = 0.3 + Math.random() * 0.3;
@@ -293,19 +309,23 @@ export default function Home() {
           speed: orbitSpeed,
           color: colors[i % colors.length],
           name: `SAT-${String(i + 1).padStart(3, '0')}`,
-          altitude: Math.round((orbitRadius - 1) * 6371), // km
+          altitude: Math.round(altitudeKm), // km
         });
       }
     };
 
-    createSatellites(satelliteCount);
+    createSatellites(satelliteCount, orbitAltitude);
 
     // Create connection lines for satellite communications
     const createConnectionLines = (count) => {
-      connectionLinesRef.current.forEach(line => scene.remove(line));
+      connectionLinesRef.current.forEach(line => {
+        scene.remove(line.main);
+        if (line.thick) scene.remove(line.thick);
+      });
       connectionLinesRef.current = [];
       
       for (let i = 0; i < count; i++) {
+        // Main line
         const lineGeometry = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(0, 0, 0),
           new THREE.Vector3(0, 0, 0)
@@ -317,7 +337,19 @@ export default function Home() {
         });
         const line = new THREE.Line(lineGeometry, lineMaterial);
         scene.add(line);
-        connectionLinesRef.current.push(line);
+        
+        // Thick red line (for closest satellite)
+        const thickTube = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.008, 0.008, 1, 8),
+          new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0,
+          })
+        );
+        scene.add(thickTube);
+        
+        connectionLinesRef.current.push({ main: line, thick: thickTube });
       }
     };
     
@@ -358,6 +390,50 @@ export default function Home() {
     renderer.domElement.addEventListener('mouseup', onMouseUp);
     renderer.domElement.addEventListener('mousemove', onMouseMove);
     renderer.domElement.addEventListener('wheel', onWheel);
+    
+    // Double-click to reposition UE
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    
+    const onDoubleClick = (e) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObject(earthRef.current);
+      
+      if (intersects.length > 0) {
+        // Get intersection point in world space
+        const worldPoint = intersects[0].point.clone();
+        
+        // Convert to Earth's local space
+        earth.worldToLocal(worldPoint);
+        
+        // Remove old anchor
+        earth.remove(anchorRef.current);
+        
+        // Create new anchor at clicked position in Earth's local space
+        const newAnchor = new THREE.Object3D();
+        newAnchor.position.copy(worldPoint).normalize().multiplyScalar(1.02);
+        earth.add(newAnchor);
+        
+        // Point outward from Earth center
+        const outward = worldPoint.clone().normalize().multiplyScalar(2);
+        newAnchor.lookAt(outward);
+        
+        // Move phone and LOS point to new anchor
+        phoneGroup.position.set(0, 0, 0);
+        losPoint.position.set(0, 0, 0);
+        newAnchor.add(phoneGroup);
+        newAnchor.add(losPoint);
+        
+        // Update reference
+        anchorRef.current = newAnchor;
+      }
+    };
+    
+    renderer.domElement.addEventListener('dblclick', onDoubleClick);
 
     // Touch controls
     renderer.domElement.addEventListener('touchstart', (e) => {
@@ -471,12 +547,38 @@ export default function Home() {
         
         // Update connection line
         if (connectionLinesRef.current[index]) {
-          const line = connectionLinesRef.current[index];
+          const lineObj = connectionLinesRef.current[index];
           const points = [losWorldPos.clone(), satPos.clone()];
-          line.geometry.setFromPoints(points);
-          line.material.opacity = isVisible ? 0.4 : 0;
-          // Mark closest satellite line in RED
-          line.material.color.setHex(index === closestSatIndex ? 0xff0000 : 0x00ffff);
+          
+          // Update main line
+          lineObj.main.geometry.setFromPoints(points);
+          lineObj.main.material.opacity = isVisible && index !== closestSatIndex ? 0.4 : 0;
+          lineObj.main.material.color.setHex(0x00ffff);
+          
+          // Update thick red line (only for closest satellite)
+          if (index === closestSatIndex && isVisible) {
+            const direction = satPos.clone().sub(losWorldPos);
+            const length = direction.length();
+            const midpoint = losWorldPos.clone().add(satPos).multiplyScalar(0.5);
+            
+            lineObj.thick.position.copy(midpoint);
+            lineObj.thick.scale.y = length;
+            lineObj.thick.lookAt(satPos);
+            lineObj.thick.rotateX(Math.PI / 2);
+            lineObj.thick.material.opacity = 0.8;
+          } else {
+            lineObj.thick.material.opacity = 0;
+          }
+        }
+        
+        // Update satellite glow for closest satellite
+        const satGlow = sat.mesh.children[0];
+        if (index === closestSatIndex && isVisible) {
+          satGlow.scale.set(1.8, 1.8, 1.8);
+          satGlow.material.opacity = 0.6;
+        } else {
+          satGlow.scale.set(1, 1, 1);
+          satGlow.material.opacity = 0.3;
         }
         });
 
@@ -631,6 +733,7 @@ export default function Home() {
       renderer.domElement.removeEventListener('mouseup', onMouseUp);
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
       renderer.domElement.removeEventListener('wheel', onWheel);
+      renderer.domElement.removeEventListener('dblclick', onDoubleClick);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
@@ -641,13 +744,25 @@ export default function Home() {
     };
   }, []);
 
-  // Update satellites when count changes
+  // Update base altitude defaults when orbit type changes
+  useEffect(() => {
+    const defaults = {
+      'VLEO': 250,
+      'LEO': 600,
+      'MEO': 8000
+    };
+    const newBase = defaults[orbitAltitude];
+    setBaseAltitude(newBase);
+    baseAltitudeRef.current = newBase;
+  }, [orbitAltitude]);
+
+  // Update satellites when count, altitude, or base changes
   useEffect(() => {
     if (containerRef.current?.createSatellites) {
-      containerRef.current.createSatellites(satelliteCount);
+      containerRef.current.createSatellites(satelliteCount, orbitAltitude, baseAltitudeRef.current);
       containerRef.current.createConnectionLines(satelliteCount);
     }
-  }, [satelliteCount]);
+  }, [satelliteCount, orbitAltitude, baseAltitude]);
 
   const resetView = () => {
     if (sceneRef.current) {
@@ -802,8 +917,22 @@ export default function Home() {
       
       {/* Controls */}
       <div className="absolute bottom-6 md:bottom-8 left-6 md:left-8">
-        <div className="max-w-md bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-5">
-          <div className="flex items-center gap-4 mb-5">
+        <div className="max-w-md bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 pb-0">
+            <h3 className="text-sm text-white/60 font-medium">Simulation Control</h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsControlsOpen(!isControlsOpen)}
+              className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8"
+            >
+              {isControlsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </Button>
+          </div>
+
+          {isControlsOpen && (
+            <div className="p-5 pt-3">
+              <div className="flex items-center gap-4 mb-5">
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
@@ -862,7 +991,7 @@ export default function Home() {
             </div>
           </div>
           
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Satellite className="h-4 w-4 text-white/40" />
               <span className="text-sm text-white/60">Satellites</span>
@@ -885,13 +1014,60 @@ export default function Home() {
               ))}
             </div>
           </div>
+
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Satellite className="h-4 w-4 text-white/40" />
+              <span className="text-sm text-white/60">Orbit Altitude</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {['VLEO', 'LEO', 'MEO'].map((altitude) => (
+                <Button
+                  key={altitude}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOrbitAltitude(altitude)}
+                  className={`text-xs px-3 py-1 h-7 transition-all ${
+                    orbitAltitude === altitude 
+                      ? 'bg-white/20 text-white' 
+                      : 'text-white/40 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  {altitude}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Satellite className="h-4 w-4 text-white/40" />
+              <span className="text-sm text-white/60">Base Altitude</span>
+            </div>
+            <div className="flex items-center gap-3 min-w-[200px]">
+              <Slider
+                value={[baseAltitude]}
+                onValueChange={(value) => {
+                  setBaseAltitude(value[0]);
+                  baseAltitudeRef.current = value[0];
+                }}
+                min={orbitAltitude === 'VLEO' ? 100 : orbitAltitude === 'LEO' ? 400 : 1200}
+                max={orbitAltitude === 'VLEO' ? 400 : orbitAltitude === 'LEO' ? 1200 : 15000}
+                step={50}
+                className="w-32"
+              />
+              <span className="text-xs text-white/40 w-16">{baseAltitude} km</span>
+            </div>
+          </div>
+            </div>
+          )}
         </div>
       </div>
       
       {/* Instructions */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
         <p className="text-center text-white/30 text-xs">
-          Drag to rotate • Scroll to zoom
+          Drag to rotate • Scroll to zoom • Double-click to move UE
         </p>
       </div>
       
