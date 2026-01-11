@@ -13,8 +13,9 @@ You should see package.json file in the folder
 
 ```bash
 Run: serve dist
-```
 Open Chrome and type in the URL: http://localhost:3000
+```
+
 
 ## Building the app
 
