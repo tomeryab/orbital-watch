@@ -1,8 +1,11 @@
-# Base44 App
+# Tomer Yablonka App
 
+Download the Base44 zip and unzip it
+Download Node JS from https://nodejs.org/en/download/current (MSI file)
+Install it
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
+Open command in the unzip folder of the Base44 App​​
+You should see package.json file in the folder
 
 ## Running the app
 
@@ -14,7 +17,11 @@ npm run dev
 ## Building the app
 
 ```bash
-npm run build
+
+Run: npm install
+Run: npm install three
+Run: npm run build
+Run: npm install -g serve
 ```
 
 For more information and support, please contact Base44 support at app@base44.com.
