@@ -22,6 +22,6 @@ Open Chrome and type in the URL: http://localhost:3000
 
 Run: npm install
 Run: npm install three
+Run: npm install -g vite
 Run: npm run build
 Run: npm install -g serve
-# Base44 App
