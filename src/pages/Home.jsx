@@ -23,10 +23,10 @@ export default function Home() {
   const isEarthRotatingRef = useRef(true);
   const [speed, setSpeed] = useState([0.1]);
   const speedRef = useRef(0.1);
-  const [satelliteCount, setSatelliteCount] = useState(12);
-  const [orbitAltitude, setOrbitAltitude] = useState('LEO');
-  const [baseAltitude, setBaseAltitude] = useState(600);
-  const baseAltitudeRef = useRef(600);
+  const [satelliteCount, setSatelliteCount] = useState(128);
+  const [orbitAltitude, setOrbitAltitude] = useState('MEO');
+  const [baseAltitude, setBaseAltitude] = useState(4000);
+  const baseAltitudeRef = useRef(4000);
   const [hoveredSatellite, setHoveredSatellite] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   const [currentThroughput, setCurrentThroughput] = useState('10Mbps');
@@ -242,14 +242,14 @@ export default function Home() {
       
       for (let i = 0; i < count; i++) {
         // Satellite mesh
-        const satGeometry = new THREE.OctahedronGeometry(0.03, 0);
+        const satGeometry = new THREE.OctahedronGeometry(0.02, 0);
         const satMaterial = new THREE.MeshBasicMaterial({
           color: colors[i % colors.length],
         });
         const satellite = new THREE.Mesh(satGeometry, satMaterial);
-        
+
         // Glow
-        const glowGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+        const glowGeometry = new THREE.SphereGeometry(0.035, 16, 16);
         const glowMaterial = new THREE.MeshBasicMaterial({
           color: colors[i % colors.length],
           transparent: true,
@@ -279,7 +279,7 @@ export default function Home() {
         const orbitMaterial = new THREE.LineBasicMaterial({
           color: colors[i % colors.length],
           transparent: true,
-          opacity: 0.15,
+          opacity: 0.08,
         });
         const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
         scene.add(orbit);
@@ -574,7 +574,7 @@ export default function Home() {
         // Update satellite glow for closest satellite
         const satGlow = sat.mesh.children[0];
         if (index === closestSatIndex && isVisible) {
-          satGlow.scale.set(1.8, 1.8, 1.8);
+          satGlow.scale.set(1.5, 1.5, 1.5);
           satGlow.material.opacity = 0.6;
         } else {
           satGlow.scale.set(1, 1, 1);
@@ -628,9 +628,19 @@ export default function Home() {
           ['QPSK', 0.12, 2], ['QPSK', 0.08, 2]
         ];
 
-        // Select MCS based on quality score
-        const mcsIndex = Math.floor((1 - qualityScore) * (mcsTable.length - 1));
-        const [constellation, codeRate, bitsPerSymbol] = mcsTable[mcsIndex];
+        // Select MCS based on quality score with interpolation
+        const exactIndex = (1 - qualityScore) * (mcsTable.length - 1);
+        const lowerIndex = Math.floor(exactIndex);
+        const upperIndex = Math.min(lowerIndex + 1, mcsTable.length - 1);
+        const fraction = exactIndex - lowerIndex; // residual for interpolation
+
+        // Get MCS entries for interpolation
+        const [constellation, lowerCodeRate, lowerBitsPerSymbol] = mcsTable[lowerIndex];
+        const [, upperCodeRate, upperBitsPerSymbol] = mcsTable[upperIndex];
+
+        // Interpolate code rate and bits per symbol
+        const codeRate = lowerCodeRate + (upperCodeRate - lowerCodeRate) * fraction;
+        const bitsPerSymbol = lowerBitsPerSymbol + (upperBitsPerSymbol - lowerBitsPerSymbol) * fraction;
 
         // Calculate throughput: 1Gbps * (codeRate / 0.92) * (bitsPerSymbol / 8)
         const maxThroughput = 1000; // Mbps
@@ -703,12 +713,12 @@ export default function Home() {
           }
         }
         } else {
-        setCurrentThroughput('10Mbps');
-        setCurrentConstellation('QPSK');
-        setCurrentCodeRate(0.08);
+        setCurrentThroughput('0Mbps');
+        setCurrentConstellation('N/A');
+        setCurrentCodeRate('N/A');
         setSatelliteVelocity(0);
         setMeasuredDoppler(0);
-      }
+        }
 
       renderer.render(scene, camera);
     };
@@ -749,7 +759,7 @@ export default function Home() {
     const defaults = {
       'VLEO': 250,
       'LEO': 600,
-      'MEO': 8000
+      'MEO': 4000
     };
     const newBase = defaults[orbitAltitude];
     setBaseAltitude(newBase);
@@ -854,8 +864,8 @@ export default function Home() {
       </div>
 
       {/* Constellation Parameters */}
-      <div className="absolute right-6 md:right-8 top-24 hidden md:block w-72">
-        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+      <div className="absolute right-6 md:right-8 top-24 hidden md:block w-56">
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-3">
           <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3">Constellation Parameters</h4>
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm">
@@ -883,8 +893,8 @@ export default function Home() {
       </div>
 
       {/* UT Statistics */}
-      <div className="absolute right-6 md:right-8 top-72 hidden md:block w-72">
-        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+      <div className="absolute right-6 md:right-8 top-72 hidden md:block w-56">
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-3">
           <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3">UT Statistics</h4>
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm">
@@ -901,7 +911,7 @@ export default function Home() {
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Code Rate:</span>
-              <span className="text-purple-400 font-medium">{currentCodeRate.toFixed(2)}</span>
+              <span className="text-purple-400 font-medium">{typeof currentCodeRate === 'number' ? currentCodeRate.toFixed(2) : currentCodeRate}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Satellite Velocity:</span>
@@ -914,26 +924,213 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Throughput Gauge */}
+      <div className="absolute right-6 md:right-8 bottom-52 hidden md:block w-56">
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+          <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3 text-center">Current Throughput</h4>
+          <div className="flex flex-col items-center">
+            {/* Speedometer-style Gauge */}
+            <div className="relative w-48 h-32">
+              <svg viewBox="0 0 240 140" className="w-full h-full">
+                {/* Outer rim */}
+                <path
+                  d="M 30 120 A 90 90 0 0 1 210 120"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.2)"
+                  strokeWidth="2"
+                />
+
+                {/* Major tick marks and labels */}
+                {[0, 0.25, 0.5, 0.75, 1].map((value, i) => {
+                  const angle = Math.PI * (1 - value);
+                  const x1 = 120 + 85 * Math.cos(angle);
+                  const y1 = 120 - 85 * Math.sin(angle);
+                  const x2 = 120 + 70 * Math.cos(angle);
+                  const y2 = 120 - 70 * Math.sin(angle);
+                  const labelX = 120 + 108 * Math.cos(angle);
+                  const labelY = 120 - 108 * Math.sin(angle) + 5;
+                  const label = value === 1 ? '1G' : value === 0 ? '0' : `${value * 1000}M`;
+
+                  return (
+                    <g key={i}>
+                      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.6)" strokeWidth="2" />
+                      <text x={labelX} y={labelY} fill="rgba(255,255,255,0.7)" fontSize="11" textAnchor="middle" fontWeight="bold">
+                        {label}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Minor tick marks */}
+                {Array.from({ length: 21 }, (_, i) => i / 20).map((value, i) => {
+                  if (value % 0.25 === 0) return null;
+                  const angle = Math.PI * (1 - value);
+                  const x1 = 120 + 85 * Math.cos(angle);
+                  const y1 = 120 - 85 * Math.sin(angle);
+                  const x2 = 120 + 77 * Math.cos(angle);
+                  const y2 = 120 - 77 * Math.sin(angle);
+
+                  return (
+                    <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+                  );
+                })}
+
+                {/* Colored arc */}
+                <path
+                  d="M 30 120 A 90 90 0 0 1 210 120"
+                  fill="none"
+                  stroke="url(#gaugeGradient)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  opacity="0.4"
+                />
+
+                {/* Needle */}
+                <line
+                  x1="120"
+                  y1="120"
+                  x2={120 + 65 * Math.cos(Math.PI * (1 - (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000)))}
+                  y2={120 - 65 * Math.sin(Math.PI * (1 - (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000)))}
+                  stroke="#ff8800"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  className="transition-all duration-300"
+                  style={{ filter: 'drop-shadow(0 0 4px rgba(255,136,0,0.8))' }}
+                />
+
+                {/* Center hub */}
+                <circle cx="120" cy="120" r="8" fill="rgba(20,20,20,0.9)" stroke="rgba(255,255,255,0.3)" strokeWidth="2" />
+                <circle cx="120" cy="120" r="4" fill="#ff8800" />
+
+                <defs>
+                  <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#22c55e" />
+                    <stop offset="50%" stopColor="#eab308" />
+                    <stop offset="100%" stopColor="#ef4444" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            {/* Value display */}
+            <div className="text-xl font-bold text-white mt-1">{currentThroughput}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Doppler Gauge */}
+      <div className="absolute right-6 md:right-8 bottom-6 hidden md:block w-56">
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-3">
+          <h4 className="text-xs uppercase tracking-wider text-white/40 mb-2 text-center">Measured Doppler</h4>
+          <div className="flex flex-col items-center">
+            {/* Doppler Gauge */}
+            <div className="relative w-48 h-24">
+              <svg viewBox="0 0 240 110" className="w-full h-full">
+                {/* Outer rim */}
+                <path
+                  d="M 30 120 A 90 90 0 0 1 210 120"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.2)"
+                  strokeWidth="2"
+                />
+
+                {/* Major tick marks and labels */}
+                {[-700, -350, 0, 350, 700].map((value, i) => {
+                  const normalized = (value + 700) / 1400;
+                  const angle = Math.PI * (1 - normalized);
+                  const x1 = 120 + 85 * Math.cos(angle);
+                  const y1 = 120 - 85 * Math.sin(angle);
+                  const x2 = 120 + 70 * Math.cos(angle);
+                  const y2 = 120 - 70 * Math.sin(angle);
+                  const labelX = 120 + 108 * Math.cos(angle);
+                  const labelY = 120 - 108 * Math.sin(angle) + 5;
+                  const label = value > 0 ? `+${value}` : value;
+
+                  return (
+                    <g key={i}>
+                      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.6)" strokeWidth="2" />
+                      <text x={labelX} y={labelY} fill="rgba(255,255,255,0.7)" fontSize="11" textAnchor="middle" fontWeight="bold">
+                        {label}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Minor tick marks */}
+                {Array.from({ length: 21 }, (_, i) => i / 20).map((value, i) => {
+                  if ((value * 1400 - 700) % 350 === 0) return null;
+                  const angle = Math.PI * (1 - value);
+                  const x1 = 120 + 85 * Math.cos(angle);
+                  const y1 = 120 - 85 * Math.sin(angle);
+                  const x2 = 120 + 77 * Math.cos(angle);
+                  const y2 = 120 - 77 * Math.sin(angle);
+
+                  return (
+                    <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+                  );
+                })}
+
+                {/* Colored arc */}
+                <path
+                  d="M 30 120 A 90 90 0 0 1 210 120"
+                  fill="none"
+                  stroke="url(#dopplerGradient)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  opacity="0.4"
+                />
+
+                {/* Needle */}
+                <line
+                  x1="120"
+                  y1="120"
+                  x2={120 + 65 * Math.cos(Math.PI * (1 - (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400))}
+                  y2={120 - 65 * Math.sin(Math.PI * (1 - (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400))}
+                  stroke="#00ffff"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  className="transition-all duration-300"
+                  style={{ filter: 'drop-shadow(0 0 4px rgba(0,255,255,0.8))' }}
+                />
+
+                {/* Center hub */}
+                <circle cx="120" cy="120" r="8" fill="rgba(20,20,20,0.9)" stroke="rgba(255,255,255,0.3)" strokeWidth="2" />
+                <circle cx="120" cy="120" r="4" fill="#00ffff" />
+
+                <defs>
+                  <linearGradient id="dopplerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#ef4444" />
+                    <stop offset="50%" stopColor="#22c55e" />
+                    <stop offset="100%" stopColor="#3b82f6" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            {/* Value display */}
+            <div className="text-xl font-bold text-cyan-400 mt-1">{measuredDoppler >= 0 ? '+' : ''}{measuredDoppler.toFixed(1)} kHz</div>
+          </div>
+        </div>
+      </div>
       
       {/* Controls */}
-      <div className="absolute bottom-6 md:bottom-8 left-6 md:left-8">
-        <div className="max-w-md bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between p-5 pb-0">
-            <h3 className="text-sm text-white/60 font-medium">Simulation Control</h3>
+      <div className="absolute bottom-6 md:bottom-8 left-6 md:left-8 space-y-3">
+        <div className="max-w-md bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between p-3 pb-0">
+            <h3 className="text-xs text-white/60 font-medium">Simulation Control</h3>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setIsControlsOpen(!isControlsOpen)}
-              className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8"
+              className="text-white/60 hover:text-white hover:bg-white/10 h-6 w-6"
             >
-              {isControlsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+              {isControlsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
             </Button>
           </div>
 
           {isControlsOpen && (
-            <div className="p-5 pt-3">
-              <div className="flex items-center gap-4 mb-5">
-            <div className="flex items-center gap-2">
+            <div className="p-3 pt-2">
+              <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="ghost"
                 size="icon"
@@ -942,14 +1139,14 @@ export default function Home() {
                   setIsPlaying(newValue);
                   isPlayingRef.current = newValue;
                 }}
-                className="text-white hover:bg-white/10 transition-all"
+                className="text-white hover:bg-white/10 transition-all h-7 w-7"
               >
-                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               </Button>
-              <span className="text-xs text-white/40">Satellites</span>
+              <span className="text-[10px] text-white/40">Sats</span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="ghost"
                 size="icon"
@@ -958,24 +1155,24 @@ export default function Home() {
                   setIsEarthRotating(newValue);
                   isEarthRotatingRef.current = newValue;
                 }}
-                className="text-white hover:bg-white/10 transition-all"
+                className="text-white hover:bg-white/10 transition-all h-7 w-7"
               >
-                {isEarthRotating ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                {isEarthRotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               </Button>
-              <span className="text-xs text-white/40">Earth</span>
+              <span className="text-[10px] text-white/40">Earth</span>
             </div>
 
             <Button
               variant="ghost"
               size="icon"
               onClick={resetView}
-              className="text-white/60 hover:text-white hover:bg-white/10 transition-all"
+              className="text-white/60 hover:text-white hover:bg-white/10 transition-all h-7 w-7"
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className="h-3 w-3" />
             </Button>
-            
-            <div className="flex items-center gap-3 min-w-[200px]">
-              <Zap className="h-4 w-4 text-white/40" />
+
+            <div className="flex items-center gap-2 min-w-[160px]">
+              <Zap className="h-3 w-3 text-white/40" />
               <Slider
                 value={speed}
                 onValueChange={(value) => {
@@ -985,25 +1182,25 @@ export default function Home() {
                 min={0.01}
                 max={1}
                 step={0.01}
-                className="w-32"
+                className="w-24"
               />
-              <span className="text-xs text-white/40 w-12">{speed[0].toFixed(2)}x</span>
+              <span className="text-[10px] text-white/40 w-10">{speed[0].toFixed(2)}x</span>
             </div>
           </div>
-          
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Satellite className="h-4 w-4 text-white/40" />
-              <span className="text-sm text-white/60">Satellites</span>
+
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <Satellite className="h-3 w-3 text-white/40" />
+              <span className="text-[10px] text-white/60">Satellites</span>
             </div>
-            <div className="flex items-center gap-2">
-              {[6, 12, 24, 48].map((count) => (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[6, 12, 24, 48, 128, 256, 1024, 2048].map((count) => (
                 <Button
                   key={count}
                   variant="ghost"
                   size="sm"
                   onClick={() => setSatelliteCount(count)}
-                  className={`text-xs px-3 py-1 h-7 transition-all ${
+                  className={`text-[10px] px-2 py-0.5 h-6 transition-all ${
                     satelliteCount === count 
                       ? 'bg-white/20 text-white' 
                       : 'text-white/40 hover:text-white hover:bg-white/10'
@@ -1015,19 +1212,19 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Satellite className="h-4 w-4 text-white/40" />
-              <span className="text-sm text-white/60">Orbit Altitude</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <Satellite className="h-3 w-3 text-white/40" />
+              <span className="text-[10px] text-white/60">Orbit</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {['VLEO', 'LEO', 'MEO'].map((altitude) => (
                 <Button
                   key={altitude}
                   variant="ghost"
                   size="sm"
                   onClick={() => setOrbitAltitude(altitude)}
-                  className={`text-xs px-3 py-1 h-7 transition-all ${
+                  className={`text-[10px] px-2 py-0.5 h-6 transition-all ${
                     orbitAltitude === altitude 
                       ? 'bg-white/20 text-white' 
                       : 'text-white/40 hover:text-white hover:bg-white/10'
@@ -1040,11 +1237,11 @@ export default function Home() {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Satellite className="h-4 w-4 text-white/40" />
-              <span className="text-sm text-white/60">Base Altitude</span>
+            <div className="flex items-center gap-1.5">
+              <Satellite className="h-3 w-3 text-white/40" />
+              <span className="text-[10px] text-white/60">Base Alt</span>
             </div>
-            <div className="flex items-center gap-3 min-w-[200px]">
+            <div className="flex items-center gap-2 min-w-[140px]">
               <Slider
                 value={[baseAltitude]}
                 onValueChange={(value) => {
@@ -1054,15 +1251,26 @@ export default function Home() {
                 min={orbitAltitude === 'VLEO' ? 100 : orbitAltitude === 'LEO' ? 400 : 1200}
                 max={orbitAltitude === 'VLEO' ? 400 : orbitAltitude === 'LEO' ? 1200 : 15000}
                 step={50}
-                className="w-32"
+                className="w-20"
               />
-              <span className="text-xs text-white/40 w-16">{baseAltitude} km</span>
+              <span className="text-[10px] text-white/40 w-12">{baseAltitude} km</span>
             </div>
           </div>
             </div>
-          )}
-        </div>
-      </div>
+            )}
+            </div>
+
+            {/* Stats Badge */}
+            <div className="flex justify-center">
+            <Badge 
+            variant="outline" 
+            className="bg-black/40 backdrop-blur-xl border-white/10 text-white/60 px-3 py-1.5"
+            >
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse mr-2" />
+            {satelliteCount} satellites active
+            </Badge>
+            </div>
+            </div>
       
       {/* Instructions */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
@@ -1071,16 +1279,7 @@ export default function Home() {
         </p>
       </div>
       
-      {/* Stats Badge */}
-      <div className="absolute bottom-24 md:bottom-32 right-6 md:right-8">
-        <Badge 
-          variant="outline" 
-          className="bg-black/40 backdrop-blur-xl border-white/10 text-white/60 px-3 py-1.5"
-        >
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse mr-2" />
-          {satelliteCount} satellites active
-        </Badge>
-      </div>
+
     </div>
   );
 }
