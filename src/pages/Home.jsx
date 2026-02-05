@@ -240,16 +240,22 @@ export default function Home() {
       };
       const config = altitudeConfig[altitude];
       
+      // Dynamic sizing based on satellite count
+      const sizeMultiplier = (count >= 1024) ? 0.5 : 1;
+      const satSize = 0.02 * sizeMultiplier;
+      const glowSize = 0.035 * sizeMultiplier;
+      const orbitOpacity = (count >= 1024) ? 0.02 : 0.08;
+
       for (let i = 0; i < count; i++) {
         // Satellite mesh
-        const satGeometry = new THREE.OctahedronGeometry(0.02, 0);
+        const satGeometry = new THREE.OctahedronGeometry(satSize, 0);
         const satMaterial = new THREE.MeshBasicMaterial({
           color: colors[i % colors.length],
         });
         const satellite = new THREE.Mesh(satGeometry, satMaterial);
 
         // Glow
-        const glowGeometry = new THREE.SphereGeometry(0.035, 16, 16);
+        const glowGeometry = new THREE.SphereGeometry(glowSize, 16, 16);
         const glowMaterial = new THREE.MeshBasicMaterial({
           color: colors[i % colors.length],
           transparent: true,
@@ -279,7 +285,8 @@ export default function Home() {
         const orbitMaterial = new THREE.LineBasicMaterial({
           color: colors[i % colors.length],
           transparent: true,
-          opacity: 0.08,
+          opacity: orbitOpacity,
+          depthWrite: false,
         });
         const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
         scene.add(orbit);
@@ -613,8 +620,17 @@ export default function Home() {
         });
 
         // Map distance to throughput and constellation using the MCS table
-        // Distance range approximately 0.3 to 1.0
-        const normalizedDistance = Math.max(0, Math.min(1, (minDistance - 0.3) / 0.7));
+        // Distance range based on base altitude
+        const ueRadius = 1.02; // UE slightly above Earth surface
+        const orbitRadius = 1 + (baseAltitudeRef.current / 6371);
+
+        // Min distance: satellite directly overhead
+        const minPossibleDistance = orbitRadius - ueRadius;
+
+        // Max distance: satellite at horizon
+        const maxPossibleDistance = Math.sqrt(orbitRadius * orbitRadius - ueRadius * ueRadius);
+
+        const normalizedDistance = Math.max(0, Math.min(1, (minDistance - minPossibleDistance) / (maxPossibleDistance - minPossibleDistance)));
         const qualityScore = 1 - normalizedDistance;
 
         // MCS table: [constellation, codeRate, bitsPerSymbol]
@@ -775,11 +791,16 @@ export default function Home() {
   }, [satelliteCount, orbitAltitude, baseAltitude]);
 
   const resetView = () => {
-    if (sceneRef.current) {
+    if (sceneRef.current && phoneRef.current) {
       const earthGroup = sceneRef.current.children.find(child => child.type === 'Group');
       if (earthGroup) {
-        earthGroup.rotation.x = 0;
-        earthGroup.rotation.y = 0;
+        const anchor = phoneRef.current.parent;
+        const ueLocalPos = anchor.position.clone();
+
+        // Calculate Y rotation to align UE with camera (+Z)
+        const targetY = -Math.atan2(ueLocalPos.x, ueLocalPos.z);
+
+        earthGroup.rotation.set(0, targetY, 0);
       }
     }
   };
@@ -793,7 +814,7 @@ export default function Home() {
       <div className="absolute top-0 left-0 right-0 p-6 md:p-8 flex justify-between items-start pointer-events-none">
         <div>
           <h1 className="text-2xl md:text-3xl font-light text-white tracking-wide">
-            CEVA Satellite Communication - PentaG Simulation
+            Ceva Satellite Communication - PentaG-NTN Simulation
           </h1>
           <p className="text-sm text-white/40 mt-1 font-light">
             Low Earth Orbit Visualization
@@ -841,10 +862,10 @@ export default function Home() {
       
       {/* Satellite List */}
       <div className="absolute left-6 md:left-8 top-1/2 -translate-y-1/2 hidden md:block">
-        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4 max-h-80 overflow-y-auto scrollbar-thin">
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4 max-h-56 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-black/40 [&::-webkit-scrollbar-thumb]:rounded-full">
           <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3">Active Satellites</h4>
           <div className="space-y-2">
-            {satellitesRef.current.slice(0, 8).map((sat, i) => (
+            {satellitesRef.current.map((sat, i) => (
               <div 
                 key={i}
                 className="flex items-center gap-3 text-sm text-white/70 hover:text-white transition-colors cursor-pointer group"
@@ -1005,9 +1026,9 @@ export default function Home() {
 
                 <defs>
                   <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#22c55e" />
+                    <stop offset="0%" stopColor="#ef4444" />
                     <stop offset="50%" stopColor="#eab308" />
-                    <stop offset="100%" stopColor="#ef4444" />
+                    <stop offset="100%" stopColor="#22c55e" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -1101,7 +1122,7 @@ export default function Home() {
                   <linearGradient id="dopplerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#ef4444" />
                     <stop offset="50%" stopColor="#22c55e" />
-                    <stop offset="100%" stopColor="#3b82f6" />
+                    <stop offset="100%" stopColor="#ef4444" />
                   </linearGradient>
                 </defs>
               </svg>
