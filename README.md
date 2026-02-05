@@ -1,12 +1,12 @@
 # Tomer Yablonka App
 
-Download thezip and unzip it
+Download the zip and unzip it
 
 Download Node JS from https://nodejs.org/en/download/current (MSI file)
 
 Install it
 
-Open command in the unzip folder of the Base44 App​​
+Open command in the unzip folder of the APP​​
 You should see package.json file in the folder
 
 ## Running the app
