@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { Satellite, Info, Pause, Play, RotateCcw, Zap, ChevronUp, ChevronDown } from 'lucide-react';
+import { Satellite, Info, Pause, Play, RotateCcw, Zap, ChevronUp, ChevronDown, Settings } from 'lucide-react';
 
 export default function Home() {
   const containerRef = useRef(null);
@@ -37,6 +37,32 @@ export default function Home() {
   const dopplerHistoryRef = useRef([]);
   const lastDopplerUpdateRef = useRef(0);
   const [isControlsOpen, setIsControlsOpen] = useState(true);
+  const [isSatelliteListOpen, setIsSatelliteListOpen] = useState(true);
+  const [isChannelParamsOpen, setIsChannelParamsOpen] = useState(true);
+  
+  // Channel Parameters
+  const [txPowerW, setTxPowerW] = useState(2000);
+  const txPowerWRef = useRef(2000);
+  const [satAntennaGain, setSatAntennaGain] = useState(35);
+  const satAntennaGainRef = useRef(35);
+  const [terminalAntennaGain, setTerminalAntennaGain] = useState(35);
+  const terminalAntennaGainRef = useRef(35);
+  const [noiseFigure, setNoiseFigure] = useState(3);
+  const noiseFigureRef = useRef(3);
+  const [channelFrequency, setChannelFrequency] = useState(20);
+  const channelFrequencyRef = useRef(20);
+  const [channelBW, setChannelBW] = useState(400);
+  const channelBWRef = useRef(400);
+  const [otherLosses, setOtherLosses] = useState(9);
+  const otherLossesRef = useRef(9);
+  const [satelliteDistance, setSatelliteDistance] = useState(0);
+  const distanceHistoryRef = useRef([]);
+  const lastDistanceUpdateRef = useRef(0);
+  const [antennaType, setAntennaType] = useState('phased_array');
+  const antennaTypeRef = useRef('phased_array');
+  const [scanLoss, setScanLoss] = useState(0);
+  const scanLossRef = useRef(0);
+  const [aprAngle, setAprAngle] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -589,6 +615,33 @@ export default function Home() {
         }
         });
 
+        // MCS table based on C/N (SNR)
+        const mcsTable = [
+          { modulation: 'QPSK', codeRate: 0.08, snr: -4.25, bitsPerSymbol: 2 },
+          { modulation: 'QPSK', codeRate: 0.12, snr: -2.96, bitsPerSymbol: 2 },
+          { modulation: 'QPSK', codeRate: 0.19, snr: -1.46, bitsPerSymbol: 2 },
+          { modulation: 'QPSK', codeRate: 0.3, snr: 0.49, bitsPerSymbol: 2 },
+          { modulation: 'QPSK', codeRate: 0.44, snr: 2.46, bitsPerSymbol: 2 },
+          { modulation: 'QPSK', codeRate: 0.59, snr: 4.38, bitsPerSymbol: 2 },
+          { modulation: '16QAM', codeRate: 0.37, snr: 4.91, bitsPerSymbol: 4 },
+          { modulation: '16QAM', codeRate: 0.48, snr: 7.2, bitsPerSymbol: 4 },
+          { modulation: '16QAM', codeRate: 0.6, snr: 8.71, bitsPerSymbol: 4 },
+          { modulation: '64QAM', codeRate: 0.46, snr: 11.01, bitsPerSymbol: 6 },
+          { modulation: '64QAM', codeRate: 0.55, snr: 12.95, bitsPerSymbol: 6 },
+          { modulation: '64QAM', codeRate: 0.65, snr: 14.85, bitsPerSymbol: 6 },
+          { modulation: '64QAM', codeRate: 0.75, snr: 17.07, bitsPerSymbol: 6 },
+          { modulation: '64QAM', codeRate: 0.85, snr: 19.88, bitsPerSymbol: 6 },
+          { modulation: '64QAM', codeRate: 0.93, snr: 24.46, bitsPerSymbol: 6 },
+          { modulation: '256QAM', codeRate: 0.66, snr: 24.5, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.69, snr: 25, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.73, snr: 25.5, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.77, snr: 26.5, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.82, snr: 27, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.86, snr: 29.5, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.89, snr: 30.5, bitsPerSymbol: 8 },
+          { modulation: '256QAM', codeRate: 0.92, snr: 36, bitsPerSymbol: 8 }
+        ];
+
         // Calculate UT statistics based on best satellite position
         const visibleSatellites = satellitesRef.current.filter((sat, index) => {
         const satPos = new THREE.Vector3(
@@ -619,56 +672,95 @@ export default function Home() {
           if (distance < minDistance) minDistance = distance;
         });
 
-        // Map distance to throughput and constellation using the MCS table
-        // Distance range based on base altitude
-        const ueRadius = 1.02; // UE slightly above Earth surface
-        const orbitRadius = 1 + (baseAltitudeRef.current / 6371);
+        // Update satellite distance and calculate C/N (throttled)
+        const now = Date.now();
+        if (now - lastDistanceUpdateRef.current >= 100) {
+          lastDistanceUpdateRef.current = now;
 
-        // Min distance: satellite directly overhead
-        const minPossibleDistance = orbitRadius - ueRadius;
+          const distanceKm = minDistance * 6371;
+          distanceHistoryRef.current.push({ value: distanceKm, timestamp: now });
 
-        // Max distance: satellite at horizon
-        const maxPossibleDistance = Math.sqrt(orbitRadius * orbitRadius - ueRadius * ueRadius);
+          // Remove measurements older than 2 seconds
+          distanceHistoryRef.current = distanceHistoryRef.current.filter(
+            item => now - item.timestamp <= 2000
+          );
 
-        const normalizedDistance = Math.max(0, Math.min(1, (minDistance - minPossibleDistance) / (maxPossibleDistance - minPossibleDistance)));
-        const qualityScore = 1 - normalizedDistance;
+          // Calculate average distance
+          if (distanceHistoryRef.current.length > 0) {
+            const avgDistance = distanceHistoryRef.current.reduce((sum, item) => sum + item.value, 0) / distanceHistoryRef.current.length;
+            setSatelliteDistance(avgDistance);
 
-        // MCS table: [constellation, codeRate, bitsPerSymbol]
-        const mcsTable = [
-          ['256QAM', 0.92, 8], ['256QAM', 0.89, 8], ['256QAM', 0.86, 8], ['256QAM', 0.82, 8],
-          ['256QAM', 0.77, 8], ['256QAM', 0.73, 8], ['256QAM', 0.69, 8], ['256QAM', 0.66, 8],
-          ['64QAM', 0.93, 6], ['64QAM', 0.85, 6], ['64QAM', 0.75, 6], ['64QAM', 0.65, 6],
-          ['64QAM', 0.55, 6], ['64QAM', 0.46, 6],
-          ['16QAM', 0.6, 4], ['16QAM', 0.48, 4], ['16QAM', 0.37, 4],
-          ['QPSK', 0.59, 2], ['QPSK', 0.44, 2], ['QPSK', 0.3, 2], ['QPSK', 0.19, 2],
-          ['QPSK', 0.12, 2], ['QPSK', 0.08, 2]
-        ];
+            // Calculate scan loss based on antenna type
+            let currentScanLoss = 0;
+            const closestSat = satellitesRef.current[closestSatIndex];
+            if (closestSat) {
+              const satPos = new THREE.Vector3(
+                Math.cos(closestSat.angle) * closestSat.orbitRadius,
+                Math.sin(closestSat.angle) * closestSat.orbitRadius * Math.sin(closestSat.inclination),
+                Math.sin(closestSat.angle) * closestSat.orbitRadius * Math.cos(closestSat.inclination)
+              );
 
-        // Select MCS based on quality score with interpolation
-        const exactIndex = (1 - qualityScore) * (mcsTable.length - 1);
-        const lowerIndex = Math.floor(exactIndex);
-        const upperIndex = Math.min(lowerIndex + 1, mcsTable.length - 1);
-        const fraction = exactIndex - lowerIndex; // residual for interpolation
+              // Calculate APR angle (angle between UE and satellite)
+              const toSat = satPos.clone().sub(losWorldPos).normalize();
+              const fromEarth = losWorldPos.clone().normalize();
+              const calculatedAprAngle = Math.acos(Math.max(-1, Math.min(1, toSat.dot(fromEarth)))) * (180 / Math.PI);
+              setAprAngle(calculatedAprAngle);
 
-        // Get MCS entries for interpolation
-        const [constellation, lowerCodeRate, lowerBitsPerSymbol] = mcsTable[lowerIndex];
-        const [, upperCodeRate, upperBitsPerSymbol] = mcsTable[upperIndex];
+              // Calculate scan loss
+              if (antennaTypeRef.current === 'dish') {
+                currentScanLoss = 0;
+              } else {
+                const cosAPR = Math.cos(calculatedAprAngle * Math.PI / 180);
+                currentScanLoss = cosAPR > 0 ? -20 * Math.log10(cosAPR) : 0;
+              }
+              setScanLoss(currentScanLoss);
+              scanLossRef.current = currentScanLoss;
+            }
 
-        // Interpolate code rate and bits per symbol
-        const codeRate = lowerCodeRate + (upperCodeRate - lowerCodeRate) * fraction;
-        const bitsPerSymbol = lowerBitsPerSymbol + (upperBitsPerSymbol - lowerBitsPerSymbol) * fraction;
+            // Calculate C/N ratio using refs for current values
+            const fspl = 92.45 + 20 * Math.log10(channelFrequencyRef.current) + 20 * Math.log10(avgDistance);
+            const totalPower = 10 * Math.log10(txPowerWRef.current * 1000) + satAntennaGainRef.current + terminalAntennaGainRef.current - otherLossesRef.current - currentScanLoss - fspl;
+            const noisePower = -174 + 10 * Math.log10(channelBWRef.current * 1000000) + noiseFigureRef.current;
+            const cnRatio = totalPower - noisePower;
 
-        // Calculate throughput: 1Gbps * (codeRate / 0.92) * (bitsPerSymbol / 8)
-        const maxThroughput = 1000; // Mbps
-        const throughput = maxThroughput * (codeRate / 0.92) * (bitsPerSymbol / 8);
+            // Find the best MCS based on C/N ratio
+            let selectedMcs = mcsTable[0]; // Default to lowest MCS
+            let nextMcs = null;
+            for (let i = mcsTable.length - 1; i >= 0; i--) {
+              if (cnRatio >= mcsTable[i].snr) {
+                selectedMcs = mcsTable[i];
+                if (i < mcsTable.length - 1) {
+                  nextMcs = mcsTable[i + 1];
+                }
+                break;
+              }
+            }
 
-        setCurrentConstellation(constellation);
-        setCurrentCodeRate(codeRate);
-        
-        if (throughput >= 1000) {
-          setCurrentThroughput('1Gbps');
-        } else {
-          setCurrentThroughput(`${Math.round(throughput)}Mbps`);
+            // Apply smoothing: interpolate code rate if we have spare SNR
+            let effectiveCodeRate = selectedMcs.codeRate;
+            if (nextMcs && cnRatio > selectedMcs.snr) {
+              const snrMargin = nextMcs.snr - selectedMcs.snr;
+              const spareSNR = cnRatio - selectedMcs.snr;
+              const interpolationFactor = Math.min(spareSNR / snrMargin, 1);
+              effectiveCodeRate = selectedMcs.codeRate + (nextMcs.codeRate - selectedMcs.codeRate) * interpolationFactor;
+            }
+
+            // Calculate raw throughput: BW (MHz) × code_rate × bits_per_symbol
+            const rawThroughput = channelBWRef.current * effectiveCodeRate * selectedMcs.bitsPerSymbol;
+            
+            // Normalize to max 1Gbps (highest MCS gives: 400 * 0.92 * 8 = 2944 Mbps)
+            const maxRawThroughput = 400 * 0.92 * 8; // 2944 Mbps
+            const throughput = (rawThroughput / maxRawThroughput) * 1000; // Scale to 1000 Mbps max
+
+            setCurrentConstellation(selectedMcs.modulation);
+            setCurrentCodeRate(effectiveCodeRate);
+
+            if (throughput >= 1000) {
+              setCurrentThroughput(`${(throughput / 1000).toFixed(2)}Gbps`);
+            } else {
+              setCurrentThroughput(`${Math.round(throughput)}Mbps`);
+            }
+          }
         }
 
         // Calculate satellite velocity and Doppler shift
@@ -833,7 +925,7 @@ export default function Home() {
       
       {/* Info Panel */}
       {showInfo && (
-        <div className="absolute top-20 right-6 md:right-8 w-72 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-5 text-white/80 text-sm animate-in fade-in slide-in-from-right-4 duration-300">
+        <div className="absolute top-20 right-6 md:right-8 w-72 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-5 text-white/80 text-sm animate-in fade-in slide-in-from-right-4 duration-300 z-50">
           <h3 className="font-medium text-white mb-3 flex items-center gap-2">
             <Satellite className="h-4 w-4" />
             About LEO Satellites
@@ -860,27 +952,287 @@ export default function Home() {
         </div>
       )}
       
-      {/* Satellite List */}
-      <div className="absolute left-6 md:left-8 top-1/2 -translate-y-1/2 hidden md:block">
-        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-4 max-h-56 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-black/40 [&::-webkit-scrollbar-thumb]:rounded-full">
-          <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3">Active Satellites</h4>
-          <div className="space-y-2">
-            {satellitesRef.current.map((sat, i) => (
-              <div 
-                key={i}
-                className="flex items-center gap-3 text-sm text-white/70 hover:text-white transition-colors cursor-pointer group"
-              >
-                <div 
-                  className="w-2 h-2 rounded-full animate-pulse"
-                  style={{ backgroundColor: `#${sat.color.toString(16).padStart(6, '0')}` }}
-                />
-                <span className="font-mono text-xs">{sat.name}</span>
-                <span className="text-white/30 text-xs ml-auto group-hover:text-white/60">
-                  {sat.altitude} km
-                </span>
-              </div>
-            ))}
+      {/* Channel Parameters Panel */}
+      <div className="absolute left-6 md:left-8 top-24 hidden md:block">
+        <div className={`bg-black/30 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden transition-all duration-300 ${isChannelParamsOpen ? 'w-64 p-3 space-y-2' : 'w-auto'}`}>
+          <div className={`flex items-center justify-between ${isChannelParamsOpen ? 'mb-2' : 'p-2'}`}>
+            {isChannelParamsOpen && <h4 className="text-xs uppercase tracking-wider text-white/40">Satellite Channel Settings</h4>}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsChannelParamsOpen(!isChannelParamsOpen)}
+              className={`text-white/60 hover:text-white hover:bg-white/10 ${isChannelParamsOpen ? 'h-6 w-6' : 'h-10 w-10'}`}
+            >
+              {isChannelParamsOpen ? <ChevronDown className="h-3 w-3" /> : <Settings className="h-5 w-5" />}
+            </Button>
           </div>
+
+            {isChannelParamsOpen && (
+            <>
+            {/* Tx Section */}
+            <div className="space-y-1.5">
+            <div className="text-[10px] text-white/60 font-semibold">Gateway:</div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Tx Power [W]:</label>
+              <input
+                type="number"
+                value={txPowerW}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setTxPowerW(val);
+                  txPowerWRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">W</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Tx Power [dBm]:</label>
+              <input
+                type="text"
+                value={(10 * Math.log10(txPowerW * 1000)).toFixed(2)}
+                readOnly
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/60 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dBm</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Sat. Ant. Gain:</label>
+              <input
+                type="number"
+                value={satAntennaGain}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setSatAntennaGain(val);
+                  satAntennaGainRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dBi</span>
+            </div>
+            </div>
+
+            {/* Rx Section */}
+            <div className="space-y-1.5">
+            <div className="text-[10px] text-white/60 font-semibold">User Terminal:</div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Term. Ant. Gain:</label>
+              <input
+                type="number"
+                value={terminalAntennaGain}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setTerminalAntennaGain(val);
+                  terminalAntennaGainRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dBi</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Noise Figure:</label>
+              <input
+                type="number"
+                value={noiseFigure}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setNoiseFigure(val);
+                  noiseFigureRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dB</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Other Losses:</label>
+              <input
+                type="number"
+                value={otherLosses}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setOtherLosses(val);
+                  otherLossesRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dB</span>
+            </div>
+            </div>
+
+            {/* Channel Section */}
+            <div className="space-y-1.5">
+            <div className="text-[10px] text-white/60 font-semibold">Channel:</div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Frequency:</label>
+              <input
+                type="number"
+                value={channelFrequency}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setChannelFrequency(val);
+                  channelFrequencyRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">GHz</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Channel BW:</label>
+              <input
+                type="number"
+                value={channelBW}
+                onChange={(e) => {
+                  const val = e.target.valueAsNumber || 0;
+                  setChannelBW(val);
+                  channelBWRef.current = val;
+                }}
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/90 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">MHz</span>
+            </div>
+            </div>
+
+            {/* Antenna Type */}
+            <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] text-white/60 font-semibold">Antenna Type:</div>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setAntennaType('dish');
+                    antennaTypeRef.current = 'dish';
+                  }}
+                  className={`text-[10px] px-2 py-0.5 h-5 transition-all ${
+                    antennaType === 'dish' 
+                      ? 'bg-white/20 text-white' 
+                      : 'text-white/40 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  Dish
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setAntennaType('phased_array');
+                    antennaTypeRef.current = 'phased_array';
+                  }}
+                  className={`text-[10px] px-2 py-0.5 h-5 transition-all ${
+                    antennaType === 'phased_array' 
+                      ? 'bg-white/20 text-white' 
+                      : 'text-white/40 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  Phased Array
+                </Button>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Aperture Angle:</label>
+              <input
+                type="text"
+                value={aprAngle.toFixed(2)}
+                readOnly
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/60 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">°</span>
+            </div>
+            <div className="flex items-center gap-1.5 pl-3">
+              <label className="text-[10px] text-white/50 w-28">Scan Loss:</label>
+              <input
+                type="text"
+                value={scanLoss.toFixed(2)}
+                readOnly
+                className="w-16 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-white/60 text-right"
+              />
+              <span className="text-[10px] text-white/50 w-8">dB</span>
+            </div>
+            </div>
+
+            {/* FSPL */}
+            <div className="pt-1.5 border-t border-white/10 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/50">Satellite Distance:</span>
+              <span className="text-[10px] text-white/90 font-medium">
+                {satelliteDistance > 0 ? satelliteDistance.toFixed(2) : '—'} km
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/50">FSPL:</span>
+              <span className="text-[10px] text-cyan-400 font-medium">
+                {satelliteDistance > 0 ? 
+                  (92.45 + 20 * Math.log10(channelFrequencyRef.current) + 20 * Math.log10(satelliteDistance)).toFixed(2) : 
+                  '—'
+                } dB
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/50">Total Power:</span>
+              <span className="text-[10px] text-green-400 font-medium">
+                {satelliteDistance > 0 ? 
+                  (10 * Math.log10(txPowerWRef.current * 1000) + satAntennaGainRef.current + terminalAntennaGainRef.current - otherLossesRef.current - scanLossRef.current - (92.45 + 20 * Math.log10(channelFrequencyRef.current) + 20 * Math.log10(satelliteDistance))).toFixed(2) : 
+                  '—'
+                } dBm
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/50">Noise Power:</span>
+              <span className="text-[10px] text-orange-400 font-medium">
+                {(-174 + 10 * Math.log10(channelBWRef.current * 1000000) + noiseFigureRef.current).toFixed(2)} dBm
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/50">C/N:</span>
+              <span className="text-[10px] text-purple-400 font-medium">
+                {satelliteDistance > 0 ? 
+                  ((10 * Math.log10(txPowerWRef.current * 1000) + satAntennaGainRef.current + terminalAntennaGainRef.current - otherLossesRef.current - scanLossRef.current - (92.45 + 20 * Math.log10(channelFrequencyRef.current) + 20 * Math.log10(satelliteDistance))) - (-174 + 10 * Math.log10(channelBWRef.current * 1000000) + noiseFigureRef.current)).toFixed(2) : 
+                  '—'
+                } dB
+              </span>
+            </div>
+            </div>
+            </>
+            )}
+            </div>
+            </div>
+
+            {/* Satellite List */}
+      <div className="absolute right-64 md:right-72 bottom-6 hidden md:block">
+        <div className={`bg-black/30 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden transition-all duration-300 ${isSatelliteListOpen ? 'w-44 h-[180px]' : 'w-auto h-auto'}`}>
+          <div className={`flex items-center justify-between ${isSatelliteListOpen ? 'p-3 pb-0' : 'p-2'}`}>
+            {isSatelliteListOpen && <h4 className="text-xs uppercase tracking-wider text-white/40">Active Satellites</h4>}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsSatelliteListOpen(!isSatelliteListOpen)}
+              className="text-white/60 hover:text-white hover:bg-white/10 h-6 w-6"
+            >
+              {isSatelliteListOpen ? <ChevronDown className="h-3 w-3" /> : <Satellite className="h-3 w-3" />}
+            </Button>
+          </div>
+          {isSatelliteListOpen && (
+            <div className="p-3 pt-2 max-h-[130px] overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-black/40 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="space-y-2">
+                {satellitesRef.current.map((sat, i) => (
+                  <div 
+                    key={i}
+                    className="flex items-center gap-3 text-sm text-white/70 hover:text-white transition-colors cursor-pointer group"
+                  >
+                    <div 
+                      className="w-2 h-2 rounded-full animate-pulse"
+                      style={{ backgroundColor: `#${sat.color.toString(16).padStart(6, '0')}` }}
+                    />
+                    <span className="font-mono text-xs">{sat.name}</span>
+                    <span className="text-white/30 text-xs ml-auto group-hover:text-white/60">
+                      {sat.altitude} km
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -891,11 +1243,19 @@ export default function Home() {
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Frequency:</span>
-              <span className="text-white/90 font-medium">KA Band</span>
+              <span className="text-white/90 font-medium">
+                {channelFrequency < 2 ? 'L' : 
+                 channelFrequency < 4 ? 'S' : 
+                 channelFrequency < 8 ? 'C' : 
+                 channelFrequency < 12 ? 'X' : 
+                 channelFrequency < 18 ? 'Ku' : 
+                 channelFrequency < 27 ? 'K' : 
+                 channelFrequency < 40 ? 'Ka' : 'V'} Band
+              </span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Channel BW:</span>
-              <span className="text-white/90 font-medium">400MHz</span>
+              <span className="text-white/90 font-medium">{channelBW}MHz</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Numerology:</span>
