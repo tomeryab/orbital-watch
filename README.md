@@ -1,6 +1,6 @@
 # Tomer Yablonka App V1.3
 
-Download the Base44 zip and unzip it
+Download the zip and unzip it
 
 Download Node JS from https://nodejs.org/en/download/current (MSI file)
 
