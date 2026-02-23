@@ -39,6 +39,13 @@ export default function Home() {
   const [isControlsOpen, setIsControlsOpen] = useState(true);
   const [isSatelliteListOpen, setIsSatelliteListOpen] = useState(true);
   const [isChannelParamsOpen, setIsChannelParamsOpen] = useState(true);
+  const [isHwModemOpen, setIsHwModemOpen] = useState(true);
+  const [hwModemConnect, setHwModemConnect] = useState(false);
+  const [hwModemIp, setHwModemIp] = useState('');
+  const [hwModemStatus, setHwModemStatus] = useState('disconnected'); // 'connected', 'disconnected', 'off'
+  const hwModemStatusRef = useRef('disconnected');
+  const [hwModemPing, setHwModemPing] = useState(null); // ping time in ms
+  const hwModemFailCountRef = useRef(0);
   
   // Channel Parameters
   const [txPowerW, setTxPowerW] = useState(2000);
@@ -63,6 +70,81 @@ export default function Home() {
   const [scanLoss, setScanLoss] = useState(0);
   const scanLossRef = useRef(0);
   const [aprAngle, setAprAngle] = useState(0);
+
+  // HW Modem ping logic
+  useEffect(() => {
+    let intervalId;
+    let cancelled = false;
+
+    const FAILS_TO_DISCONNECT = 3;
+    const POLL_MS = 200;
+    const FETCH_TIMEOUT_MS = 500;
+
+    const check = async () => {
+      if (!hwModemConnect) {
+        hwModemFailCountRef.current = 0;
+        setHwModemStatus("off");
+        hwModemStatusRef.current = "off";
+        setHwModemPing(null);
+        return;
+      }
+
+      if (!hwModemIp) {
+        hwModemFailCountRef.current = 0;
+        setHwModemStatus("disconnected");
+        hwModemStatusRef.current = "disconnected";
+        setHwModemPing(null);
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+      try {
+        const resp = await fetch(
+          `http://localhost:8787/jbox/status?ip=${encodeURIComponent(hwModemIp)}`,
+          { signal: controller.signal, cache: "no-store" }
+        );
+
+        if (!resp.ok) throw new Error("Bad response");
+        const data = await resp.json();
+        if (cancelled) return;
+
+        if (data.reachable) {
+          hwModemFailCountRef.current = 0;
+          setHwModemStatus("connected");
+          hwModemStatusRef.current = "connected";
+          setHwModemPing(data.rttMs ?? null);
+        } else {
+          hwModemFailCountRef.current += 1;
+          if (hwModemFailCountRef.current >= FAILS_TO_DISCONNECT) {
+            setHwModemStatus("disconnected");
+            hwModemStatusRef.current = "disconnected";
+            setHwModemPing(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          hwModemFailCountRef.current += 1;
+          if (hwModemFailCountRef.current >= FAILS_TO_DISCONNECT) {
+            setHwModemStatus("disconnected");
+            hwModemStatusRef.current = "disconnected";
+            setHwModemPing(null);
+          }
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    check();
+    intervalId = setInterval(check, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [hwModemConnect, hwModemIp]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -582,18 +664,18 @@ export default function Home() {
         if (connectionLinesRef.current[index]) {
           const lineObj = connectionLinesRef.current[index];
           const points = [losWorldPos.clone(), satPos.clone()];
-          
+
           // Update main line
           lineObj.main.geometry.setFromPoints(points);
-          lineObj.main.material.opacity = isVisible && index !== closestSatIndex ? 0.4 : 0;
+          lineObj.main.material.opacity = isVisible && index !== closestSatIndex && hwModemStatusRef.current !== 'disconnected' ? 0.4 : 0;
           lineObj.main.material.color.setHex(0x00ffff);
-          
+
           // Update thick red line (only for closest satellite)
-          if (index === closestSatIndex && isVisible) {
+          if (index === closestSatIndex && isVisible && hwModemStatusRef.current !== 'disconnected') {
             const direction = satPos.clone().sub(losWorldPos);
             const length = direction.length();
             const midpoint = losWorldPos.clone().add(satPos).multiplyScalar(0.5);
-            
+
             lineObj.thick.position.copy(midpoint);
             lineObj.thick.scale.y = length;
             lineObj.thick.lookAt(satPos);
@@ -952,23 +1034,23 @@ export default function Home() {
         </div>
       )}
       
-      {/* Channel Parameters Panel */}
-      <div className="absolute left-6 md:left-8 top-24 hidden md:block">
-        <div className={`bg-black/30 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden transition-all duration-300 ${isChannelParamsOpen ? 'w-64 p-3 space-y-2' : 'w-auto'}`}>
-          <div className={`flex items-center justify-between ${isChannelParamsOpen ? 'mb-2' : 'p-2'}`}>
-            {isChannelParamsOpen && <h4 className="text-xs uppercase tracking-wider text-white/40">Satellite Channel Settings</h4>}
+      {/* Channel Parameters and HW Modem Container */}
+      <div className="absolute left-6 md:left-8 top-24 hidden md:block space-y-3">
+        {/* Channel Parameters Panel */}
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden w-64 p-3 space-y-2">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs uppercase tracking-wider text-white/40">Satellite Channel Settings</h4>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setIsChannelParamsOpen(!isChannelParamsOpen)}
-              className={`text-white/60 hover:text-white hover:bg-white/10 ${isChannelParamsOpen ? 'h-6 w-6' : 'h-10 w-10'}`}
+              className="text-white/60 hover:text-white hover:bg-white/10 h-6 w-6"
             >
-              {isChannelParamsOpen ? <ChevronDown className="h-3 w-3" /> : <Settings className="h-5 w-5" />}
+              {isChannelParamsOpen ? <ChevronDown className="h-3 w-3" /> : <Settings className="h-3 w-3" />}
             </Button>
           </div>
 
-            {isChannelParamsOpen && (
-            <>
+            {isChannelParamsOpen && (<>
             {/* Tx Section */}
             <div className="space-y-1.5">
             <div className="text-[10px] text-white/60 font-semibold">Gateway:</div>
@@ -1195,8 +1277,87 @@ export default function Home() {
             </div>
             </>
             )}
-            </div>
-            </div>
+        </div>
+
+        {/* HW Modem Panel */}
+        <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden w-64 p-3 space-y-2">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs uppercase tracking-wider text-white/40">HW Modem</h4>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsHwModemOpen(!isHwModemOpen)}
+              className="text-white/60 hover:text-white hover:bg-white/10 h-6 w-6"
+            >
+              {isHwModemOpen ? <ChevronDown className="h-3 w-3" /> : <Settings className="h-3 w-3" />}
+            </Button>
+          </div>
+
+            {isHwModemOpen && (<>
+              <div className="space-y-3">
+                {/* Connect Checkbox with LED */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={hwModemConnect}
+                      onChange={(e) => setHwModemConnect(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-white/20 bg-white/5 checked:bg-cyan-500 cursor-pointer"
+                    />
+                    <label className="text-[10px] text-white/60">Connect to Modem</label>
+                  </div>
+                  {/* LED Indicator */}
+                  <div className={`w-3 h-3 rounded-full transition-all ${
+                    hwModemStatus === 'off' ? 'bg-white/10' :
+                    hwModemStatus === 'connected' ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50' :
+                    'bg-red-500 animate-pulse shadow-lg shadow-red-500/50'
+                  }`} />
+                </div>
+
+                {/* IP Address Input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-white/50">IP Address:</label>
+                  <input
+                    type="text"
+                    placeholder="192.168.1.100"
+                    value={hwModemIp}
+                    onChange={(e) => setHwModemIp(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-[10px] text-white/90 placeholder:text-white/30"
+                  />
+                </div>
+
+                {/* Status Text */}
+                <div className="pt-1 border-t border-white/10 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/50">Status:</span>
+                    <span className={`text-[10px] font-medium ${
+                      hwModemStatus === 'off' ? 'text-white/40' :
+                      hwModemStatus === 'connected' ? 'text-green-400' :
+                      'text-red-400'
+                    }`}>
+                      {hwModemStatus === 'off' ? 'Off' :
+                       hwModemStatus === 'connected' ? 'Connected' :
+                       'Disconnected'}
+                    </span>
+                  </div>
+                  {hwModemConnect && hwModemStatus !== 'off' && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-white/50">Ping:</span>
+                      <span className={`text-[10px] font-medium ${
+                        hwModemStatus === 'connected' ? 'text-cyan-400' : 'text-red-400'
+                      }`}>
+                        {hwModemStatus === 'connected' && hwModemPing !== null 
+                          ? `${hwModemPing}ms` 
+                          : 'Timeout'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+            )}
+        </div>
+      </div>
 
             {/* Satellite List */}
       <div className="absolute right-64 md:right-72 bottom-6 hidden md:block">
@@ -1284,23 +1445,23 @@ export default function Home() {
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Current Throughput:</span>
-              <span className="text-green-400 font-medium">{currentThroughput}</span>
+              <span className="text-green-400 font-medium">{hwModemStatus !== 'disconnected' ? currentThroughput : 'N/A'}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Constellation:</span>
-              <span className="text-blue-400 font-medium">{currentConstellation}</span>
+              <span className="text-blue-400 font-medium">{hwModemStatus !== 'disconnected' ? currentConstellation : 'N/A'}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Code Rate:</span>
-              <span className="text-purple-400 font-medium">{typeof currentCodeRate === 'number' ? currentCodeRate.toFixed(2) : currentCodeRate}</span>
+              <span className="text-purple-400 font-medium">{hwModemStatus !== 'disconnected' ? (typeof currentCodeRate === 'number' ? currentCodeRate.toFixed(2) : currentCodeRate) : 'N/A'}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Satellite Velocity:</span>
-              <span className="text-cyan-400 font-medium">{satelliteVelocity.toFixed(2)} km/s</span>
+              <span className="text-cyan-400 font-medium">{hwModemStatus !== 'disconnected' ? `${satelliteVelocity.toFixed(2)} km/s` : 'N/A'}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Measured Doppler:</span>
-              <span className="text-yellow-400 font-medium">{measuredDoppler >= 0 ? '+' : ''}{measuredDoppler.toFixed(1)} kHz</span>
+              <span className="text-yellow-400 font-medium">{hwModemStatus !== 'disconnected' ? `${measuredDoppler >= 0 ? '+' : ''}${measuredDoppler.toFixed(1)} kHz` : 'N/A'}</span>
             </div>
           </div>
         </div>
@@ -1371,8 +1532,8 @@ export default function Home() {
                 <line
                   x1="120"
                   y1="120"
-                  x2={120 + 65 * Math.cos(Math.PI * (1 - (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000)))}
-                  y2={120 - 65 * Math.sin(Math.PI * (1 - (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000)))}
+                  x2={120 + 65 * Math.cos(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000) : 0)))}
+                  y2={120 - 65 * Math.sin(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000) : 0)))}
                   stroke="#ff8800"
                   strokeWidth="4"
                   strokeLinecap="round"
@@ -1394,7 +1555,7 @@ export default function Home() {
               </svg>
             </div>
             {/* Value display */}
-            <div className="text-xl font-bold text-white mt-1">{currentThroughput}</div>
+            <div className="text-xl font-bold text-white mt-1">{hwModemStatus !== 'disconnected' ? currentThroughput : 'N/A'}</div>
           </div>
         </div>
       </div>
@@ -1465,8 +1626,8 @@ export default function Home() {
                 <line
                   x1="120"
                   y1="120"
-                  x2={120 + 65 * Math.cos(Math.PI * (1 - (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400))}
-                  y2={120 - 65 * Math.sin(Math.PI * (1 - (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400))}
+                  x2={120 + 65 * Math.cos(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400 : 0.5)))}
+                  y2={120 - 65 * Math.sin(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (Math.max(-700, Math.min(700, measuredDoppler)) + 700) / 1400 : 0.5)))}
                   stroke="#00ffff"
                   strokeWidth="4"
                   strokeLinecap="round"
@@ -1488,7 +1649,7 @@ export default function Home() {
               </svg>
             </div>
             {/* Value display */}
-            <div className="text-xl font-bold text-cyan-400 mt-1">{measuredDoppler >= 0 ? '+' : ''}{measuredDoppler.toFixed(1)} kHz</div>
+            <div className="text-xl font-bold text-cyan-400 mt-1">{hwModemStatus !== 'disconnected' ? `${measuredDoppler >= 0 ? '+' : ''}${measuredDoppler.toFixed(1)} kHz` : 'N/A'}</div>
           </div>
         </div>
       </div>
