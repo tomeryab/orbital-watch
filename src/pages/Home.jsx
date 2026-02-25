@@ -196,15 +196,15 @@ export default function Home() {
 
     // Earth with realistic texture
     const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
-    
+
     // Load Earth textures
     const textureLoader = new THREE.TextureLoader();
-    
+
     // Using NASA's Blue Marble texture
     const earthTexture = textureLoader.load('https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg');
     const bumpTexture = textureLoader.load('https://raw.githubusercontent.com/turban/webgl-earth/master/images/elev_bump_4k.jpg');
     const specularTexture = textureLoader.load('https://raw.githubusercontent.com/turban/webgl-earth/master/images/water_4k.png');
-    
+
     const earthMaterial = new THREE.MeshPhongMaterial({
       map: earthTexture,
       bumpMap: bumpTexture,
@@ -774,6 +774,7 @@ export default function Home() {
 
             // Calculate scan loss based on antenna type
             let currentScanLoss = 0;
+            let calculatedAprAngle = 0;
             const closestSat = satellitesRef.current[closestSatIndex];
             if (closestSat) {
               const satPos = new THREE.Vector3(
@@ -785,7 +786,7 @@ export default function Home() {
               // Calculate APR angle (angle between UE and satellite)
               const toSat = satPos.clone().sub(losWorldPos).normalize();
               const fromEarth = losWorldPos.clone().normalize();
-              const calculatedAprAngle = Math.acos(Math.max(-1, Math.min(1, toSat.dot(fromEarth)))) * (180 / Math.PI);
+              calculatedAprAngle = Math.acos(Math.max(-1, Math.min(1, toSat.dot(fromEarth)))) * (180 / Math.PI);
               setAprAngle(calculatedAprAngle);
 
               // Calculate scan loss
@@ -880,7 +881,7 @@ export default function Home() {
           // Calculate Doppler shift for KA band (26 GHz)
           const kaFrequency = 26e9; // Hz
           const speedOfLight = 299792.458; // km/s
-          const dopplerShift = (radialVelocity / speedOfLight) * kaFrequency;
+          const dopplerShift = -(radialVelocity / speedOfLight) * kaFrequency;
           
           // Throttle updates to once every 100ms
           const now = Date.now();
@@ -1053,7 +1054,7 @@ export default function Home() {
             {isChannelParamsOpen && (<>
             {/* Tx Section */}
             <div className="space-y-1.5">
-            <div className="text-[10px] text-white/60 font-semibold">Gateway:</div>
+            <div className="text-[10px] text-white/60 font-semibold">Payload:</div>
             <div className="flex items-center gap-1.5 pl-3">
               <label className="text-[10px] text-white/50 w-28">Tx Power [W]:</label>
               <input
@@ -1342,7 +1343,7 @@ export default function Home() {
                   </div>
                   {hwModemConnect && hwModemStatus !== 'off' && (
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-white/50">Ping:</span>
+                      <span className="text-[10px] text-white/50">Latency:</span>
                       <span className={`text-[10px] font-medium ${
                         hwModemStatus === 'connected' ? 'text-cyan-400' : 'text-red-400'
                       }`}>
@@ -1420,7 +1421,7 @@ export default function Home() {
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Numerology:</span>
-              <span className="text-white/90 font-medium">2, 120KHz SCS</span>
+              <span className="text-white/90 font-medium">3, 120KHz SCS</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Constellation:</span>
@@ -1439,10 +1440,6 @@ export default function Home() {
         <div className="bg-black/30 backdrop-blur-xl border border-white/10 rounded-2xl p-3">
           <h4 className="text-xs uppercase tracking-wider text-white/40 mb-3">UT Statistics</h4>
           <div className="space-y-2">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-white/50">Max Throughput:</span>
-              <span className="text-white/90 font-medium">1Gbps</span>
-            </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-white/50">Current Throughput:</span>
               <span className="text-green-400 font-medium">{hwModemStatus !== 'disconnected' ? currentThroughput : 'N/A'}</span>
@@ -1532,8 +1529,8 @@ export default function Home() {
                 <line
                   x1="120"
                   y1="120"
-                  x2={120 + 65 * Math.cos(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000) : 0)))}
-                  y2={120 - 65 * Math.sin(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput === '1Gbps' ? 1 : parseInt(currentThroughput) / 1000) : 0)))}
+                  x2={120 + 65 * Math.cos(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput.includes('Gbps') ? parseFloat(currentThroughput) : parseFloat(currentThroughput) / 1000) : 0)))}
+                  y2={120 - 65 * Math.sin(Math.PI * (1 - (hwModemStatus !== 'disconnected' ? (currentThroughput.includes('Gbps') ? parseFloat(currentThroughput) : parseFloat(currentThroughput) / 1000) : 0)))}
                   stroke="#ff8800"
                   strokeWidth="4"
                   strokeLinecap="round"
